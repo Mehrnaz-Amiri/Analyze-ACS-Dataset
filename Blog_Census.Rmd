@@ -1,0 +1,194 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+```{r}
+census <- read.csv("~/Desktop/ACS_1418_TRACT.csv", sep = ",", header = TRUE, stringsAsFactors=FALSE)
+head(census)
+```
+
+```{r}
+## Tweet 1: “The density in this census tract (*123) is 13,234 people/square mile, which is less dense than 75% of Boston.
+# ACS data for Boston
+Boston <- census[census$TOWN == 'BOSTON',]
+
+# Population density for each tract for Boston
+PopDen_Boston <- aggregate(PopDen ~ CT_ID_10, data = Boston, sum)
+head(PopDen_Boston)
+
+ecdf.Boston <- ecdf(PopDen_Boston$PopDen)
+dens.Boston <- ecdf.Boston(PopDen_Boston$PopDen)
+summary(dens.Boston)
+# 75% of Boston
+lessDense.Boston.1 <- PopDen_Boston[which(dens.Boston < 0.75142),]
+head(lessDense.Boston.1)
+
+# Quantile
+Boston.75percent <- quantile(Boston$PopDen, 0.75, na.rm = TRUE)
+Boston.75percent
+# Tracts in Boston data which have pop density less than Boston
+lessDense.Boston <- PopDen_Boston[which(PopDen_Boston$PopDen < Boston.75percent),]
+head(lessDense.Boston)
+```
+
+```{r}
+# Total population in all tracts
+total_pop <- sum(Boston$TotalPop, na.rm = TRUE)
+myFun <- function(x){
+  ((100*x)/total_pop)
+}
+pop_percent <- aggregate(TotalPop ~ CT_ID_10, data = Boston, myFun)
+pop_total_tract <- aggregate(TotalPop ~ CT_ID_10, data = Boston, sum)
+pop <- merge(pop_total_tract, pop_percent, by="CT_ID_10")
+names(pop)[2] <- "TotalPop"
+names(pop)[3] <- "PercentPop"
+head(pop)
+```
+
+```{r}
+## 22% of people rent their home, with a median rent of $2,400 (12% higher than the citywide median).”
+# Median rent
+rent_med <- aggregate(MedGrossRent ~ CT_ID_10, data = Boston, sum)
+pop_rent <- merge(pop, rent_med, by="CT_ID_10", all = TRUE)
+head(pop_rent)
+# 12% higher than the citywide median. "I don't know how to calculate the citywide median rent' I think we cannot obtain the citywide median rent from this data
+```
+
+
+```{r}
+## Tweet 2: “This census tract (*123) is 19% more racially/ethnically diverse than the city average. 
+# I think that the way that the statement is written does not mean percentile. If Will means percentile, it should be "census tract (*123) is more racially/ethnically diverse than 50% of Boston." So I do it for percentile, which is the second statement
+
+ethhet_tract <- aggregate(EthHet ~ CT_ID_10, data=Boston, function(x)sum(x)*100)
+ethhet <- merge(ethhet_tract, pop[,-3], by="CT_ID_10", all = TRUE)
+head(ethhet)
+
+# Percentile
+BostonEth_average <- quantile(ethhet$EthHet, 0.50, na.rm = TRUE)
+BostonEth_average
+ethn.than.city <- ethhet[which(ethhet$EthHet > BostonEth_average),]
+ethn.than.city$Diff <- ethn.than.city$EthHet - BostonEth_average
+head(ethn.than.city)
+```
+
+```{r}
+## Tract # 123:
+#--20% white
+#--20% black
+#--20% hispanic
+#--20% asian
+#--20% other”
+library(sqldf)
+race_tract <- sqldf("select CT_ID_10,
+            sum(White)*100 as White,
+            sum(Black)*100 as Black,
+            sum(Asian)*100 as Asian,
+            sum(Hispanic)*100 as Hisponic,
+            sum(TwoOrMore)*100 as other
+            from Boston
+            group by CT_ID_10")
+head(race_tract)
+```
+
+
+
+```{r}
+## Tweet 3: “In this census tract ($123), 20% of residents have a high school degree or less, 20% have completed some college or a bachelor’s degree, and 20% have a graduate degree.” with picture of age distribution chart
+education_tract <- sqldf("select CT_ID_10,
+            sum(LessThanHS)*100 + sum(HSGrad)*100 as highSchoolDegreeOrless,
+            sum(SomeColl)*100 + sum(Bach)*100 as completedCollegeOrBachelorDegree,
+            sum(Master)*100 + sum(Prof)*100 + sum(Doc)*100 as graduateDegree
+            from Boston
+            group by CT_ID_10")
+head(education_tract)
+```
+
+```{r}
+### with picture of age distribution chart
+## Age distribution
+age_tract_percentage <- sqldf("select CT_ID_10,
+            sum(AgeU18)*100 as AgeU18,
+            sum(Age1834)*100 as Age1834,
+            sum(Age3564)*100 as Age3564,
+            sum(AgeO65)*100 as AgeO65
+            from Boston
+            group by CT_ID_10")
+head(age_tract_percentage)
+
+
+age_tract <- sqldf("select CT_ID_10,
+            sum(AgeU18) as AgeU18,
+            sum(Age1834) as Age1834,
+            sum(Age3564) as Age3564,
+            sum(AgeO65) as AgeO65
+            from Boston
+            group by CT_ID_10")
+age_tract
+age_pop <- merge(age_tract, pop, by = "CT_ID_10")
+age_pop
+
+for (i in 1:nrow(age_pop)) {
+  age_pop[i,8] <- (age_pop[i,2]*age_pop[i,6])
+  age_pop[i,9] <- (age_pop[i,3]*age_pop[i,6])
+  age_pop[i,10] <- (age_pop[i,4]*age_pop[i,6])
+  age_pop[i,11] <- (age_pop[i,5]*age_pop[i,6])
+
+}
+colnames(age_pop)[c(8,9,10,11)] <- c("count_AgeU18", "count_Age1834", "count_Age3564","count_AgeO65")
+head(age_pop)
+
+sum_U18 <- sum(age_pop$count_AgeU18, na.rm = TRUE)
+sum_1834 <- sum(age_pop$count_Age1834, na.rm = TRUE)
+sum_3564 <- sum(age_pop$count_Age3564, na.rm = TRUE)
+sum_O65 <- sum(age_pop$count_AgeO65, na.rm = TRUE)
+ages <- as.data.frame(cbind(sum_U18, sum_1834, sum_3564, sum_O65))
+colnames(ages) <- c("AgeU18", "Age1834", "Age3564", "AgeO65")
+barplot(as.matrix(ages))
+
+age_pop
+age_pop <- age_pop[,c(1,8,9,10,11)]
+age_pop 
+```
+
+```{r}
+
+for (i in 1:nrow(age_pop)) {
+  file_loc="~/Desktop/tract ID/"
+  jpeg(file=paste(file_loc,'Tract', as.character(age_pop[i,1]), '.jpeg', sep=' '))
+  barplot(as.matrix(age_pop[i,c(2:5)]), xlab=paste('Tract', as.character(age_pop[i,1]), sep=' '),   ylim=c(0,5000))
+  dev.off()
+  
+}
+```
+
+
+
+
+
+
+```{r}
+# Test drive this on someone — two variables here(I don't understand what do you mean by this statement)
+age_education <- merge(education_tract, age_tract_percentage, by="CT_ID_10", all=TRUE)
+head(age_education)
+```
+
+
+```{r}
+ACS <- census[census$TOWN == 'BOSTON'| census$TOWN == "BROOKLINE" | census$TOWN == "CAMBRIDGE" |  census$TOWN == "SOMERVILLE" | census$TOWN == "EVERETT",]
+# Create drivers column by adding other three column's values as a dataframe
+ACS <- transform(ACS, Drivers = ByPubTrans + ByAuto + ByWalk)
+head(ACS)
+```
+
+```{r}
+# Drivers and Bike percentage for each tract
+drivers_tract <- sqldf("select CT_ID_10,
+            sum(Drivers)*100 as Drivers,
+            sum(ByBike)*100 as ByBike
+            from ACS
+            group by CT_ID_10")
+head(drivers_tract)
+```
+
+
+
